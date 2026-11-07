@@ -119,18 +119,12 @@ static int pads_start(void) {
     return 1;
 }
 
-/* SDL_GameControllerRumble runs only for the duration it is given, then stops, and a repeat of the same numbers was
-   skipped. A rumble the game holds, and one that was already playing when this controller opened, never reached it. */
-static int rumble_due(unsigned lo, unsigned hi, unsigned sent_lo, unsigned sent_hi, long long now, long long sent_ns) {
-    if (lo != sent_lo || hi != sent_hi) return 1;
-    if ((lo || hi) && now - sent_ns >= 500000000LL) return 1;   /* (half of the 1 s effect, so it does not lapse) */
-    return 0;
-}
-
 /* one poll: controllers plugged in or gone (each second), then every open one's buttons, sticks and rumble */
 static void pads_poll(void) {
     static int64_t next_scan = 0;
-    sdl.Update();
+    static uint16_t last_lo = 0, last_hi = 0;
+    {
+        sdl.Update();
         const int64_t now = hos_now_ns();
         if (now >= next_scan) {   /* new controllers (and ones that went away) */
             next_scan = now + 1000000000LL;
@@ -189,8 +183,10 @@ static void pads_poll(void) {
         memcpy(state_stick, s, sizeof s);
         state_count = count;
         ReleaseSRWLockExclusive(&state_lock);
+    }
 }
 
+#ifdef _WIN32
 static DWORD WINAPI pad_main(void *arg) {
     (void)arg;
     hos_host_thread_register_self("gamepads (SDL)");
@@ -200,11 +196,10 @@ static DWORD WINAPI pad_main(void *arg) {
         Sleep(4);
     }
 }
-#ifndef _WIN32
-int hos_display_owns_sdl(void);   /* host/posix/display_sdl.c */
-/* (linux) SDL also runs the window (host/posix/display_sdl.c), and its event queue is not for two threads. Polled
-   from the window's thread, between its events. Two threads pumping it corrupted the heap once a controller was
-   attached. */
+#else
+/* (hookshot) Linux: SDL also runs the window there (host/linux/display_sdl.c), and its event queue is not for two
+   threads: polled from the window's thread, between its events, instead of a thread of its own (two threads pumping
+   it corrupted the heap and crashed the game once a controller was attached) */
 static volatile LONG pads_loaded;
 void hos_sdl_pads_pump(void) {
     static int state;   /* 0 not started, 1 polling, -1 not available */
@@ -226,10 +221,7 @@ int hos_sdl_pads(uint64_t *buttons, int32_t stick[4]) {
 #ifdef _WIN32
         CreateThread(NULL, 0, pad_main, NULL, 0, NULL);
 #else
-        if (hos_display_owns_sdl())
-            InterlockedExchange(&pads_loaded, 1);   /* (the window's thread polls: hos_sdl_pads_pump) */
-        else
-            CreateThread(NULL, 0, pad_main, NULL, 0, NULL);   /* (no window: nothing else pumps SDL) */
+        InterlockedExchange(&pads_loaded, 1);   /* (started and polled by the window's thread: hos_sdl_pads_pump) */
 #endif
     }
     AcquireSRWLockShared(&state_lock);
