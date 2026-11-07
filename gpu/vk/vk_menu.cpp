@@ -2,8 +2,7 @@
 // so it costs nothing while closed and it never touches the game's picture, nor what frame interpolation sees. Keys: Insert
 // opens and closes it, Up and Down choose, Left and Right change, Esc closes; the game gets no keyboard input while it is open.
 // (hookshot) A gamepad's Home button, or Select and Start together, opens it too; the D-pad chooses and changes, the bottom
-// face button changes too, the right one closes. The game gets no gamepad input while it is open either.
-// Its Controls page binds the Switch's buttons to gamepad inputs and keys.
+// face button selects, the right one goes back. Its Controls page binds the Switch's buttons to gamepad inputs and keys.
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -101,40 +100,17 @@ void apply_preset(int p) {
 }
 
 Row rows[] = {
-    {"Quality preset", &opts.preset, 0, 5, 1, tx_preset,
-     "Automatically configures resolution, upscaling, frame generation, and dynamic VRAM limits tailored to your GPU tier."},
-    {"Fullscreen", &opts.fullscreen, 0, 1, 1, tx_onoff,
-     "Fills the whole screen with the game, without the window's border. The same as F11."},
-    {"Frame generation", &opts.framegen, 0, 8, 1, tx_framegen,
-     "Makes extra frames between the game's own (2x up to 8x), for smoother motion. Adds a little input delay, and fast motion or camera cuts "
-     "can show artifacts."},
-    {"Frame pacing", &opts.pace, 0, 1, 1, tx_onoff,
-     "Shows each frame at an even interval instead of as soon as it is ready. Less stutter, at up to one frame of delay."},
-    {"Resolution", &opts.resolution, 0, 4, 1, tx_resolution,
-     "How sharp the 3D is drawn. Auto lets the game lower it when the GPU is busy. A fixed percentage stays steady: lower is "
-     "faster."},
-    {"Upscaling", &opts.upscale, 0, 2, 1, tx_upscale,
-     "The filter that scales the picture to your window. Off is the plain copy. Catmull-Rom is sharper, Lanczos sharper still."},
-    {"Sharpness", &opts.sharpness, 0, 100, 10, tx_percent,
-     "Sharpens the picture as it goes to the window, with or without an upscaling filter. Too much shows halos around edges."},
-    {"Game speed", &opts.realtime, 0, 1, 1, tx_speed,
-     "Per frame: the game slows down whenever it runs below 60 fps. Real time: it keeps normal speed down to 15 fps by taking "
-     "longer steps."},
-    {"Handheld profile", &opts.handheld, 0, 1, 1, tx_handheld,
-     "Runs the game as if the console were undocked: lower resolutions, lighter on the GPU. Applies after a restart."},
-    {"Ultrawide", &opts.ultrawide, 0, 1, 1, tx_ultrawide,
-     "Monitor's shape widens the camera to fill a screen wider than 16:9. The HUD is still stretched. Applies after a restart."},
-    {"FPS counter", &opts.show_fps, 0, 1, 1, tx_onoff,
-     "Shows frames per second in the top right corner. With frame generation on, it also shows the game's own rate."},
-    {"Controller in background", &opts.pad_background, 0, 1, 1, tx_onoff,
-     "On: the controller keeps playing the game while another window has the focus, for streaming or playing beside other "
-     "apps. The keyboard and mouse still need the game's window."},
-    {"Text speed", &opts.text_speed, 0, 3, 1, tx_text_speed,
-     "How fast the letters of dialogue and other messages appear. Normal is the game's own pace, with its pauses. Instant shows "
-     "each page at once, as pressing A does."},
-
-    {"Controls", nullptr, 0, 0, 0, nullptr,   // (hookshot: opens its page)
-     "Which gamepad button and which keys press each of the Switch's buttons."},
+    {"Fullscreen", &opts.fullscreen, 0, 1, 1, tx_onoff},
+    {"Frame generation", &opts.framegen, 0, 4, 1, tx_framegen},
+    {"Frame pacing", &opts.pace, 0, 1, 1, tx_onoff},
+    {"Resolution", &opts.resolution, 0, 4, 1, tx_resolution},
+    {"Upscaling", &opts.upscale, 0, 2, 1, tx_upscale},
+    {"Sharpness", &opts.sharpness, 0, 100, 10, tx_percent},
+    {"Game speed", &opts.realtime, 0, 1, 1, tx_speed},
+    {"Handheld profile", &opts.handheld, 0, 1, 1, tx_handheld},
+    {"Ultrawide", &opts.ultrawide, 0, 1, 1, tx_ultrawide},
+    {"FPS counter", &opts.show_fps, 0, 1, 1, tx_onoff},
+    {"Controls", nullptr, 0, 0, 0, nullptr},   // (hookshot: opens its page)
 };
 constexpr int kRows = sizeof rows / sizeof rows[0];
 constexpr int kMenuWidth = 360;   // (at a scale of 1: 720 lines)
@@ -160,12 +136,12 @@ const char* const bind_names[HOS_SW_N] = {"a", "b", "x", "y", "ls", "rs", "l", "
                                           "left", "up", "right", "down"};
 bool can_bind() { return host && host->binding && host->bind && host->pad_raw; }
 void save() {
-    // (hookshot) the lines that are not the menu's are kept: the controls, pad_ and key_ (host/nn_hid.c)
-    std::string kept;
-    if (FILE* f = fopen(ini_path().c_str(), "r")) {
-        char line[256];
-        while (fgets(line, sizeof line, f))
-            if (!strncmp(line, "pad_", 4) || !strncmp(line, "key_", 4)) kept += line;
+    if (FILE* f = fopen(ini_path().c_str(), "w")) {
+        for (const Row& r : rows)
+            if (r.value) fprintf(f, "%s=%d\n", ini_key(r), *r.value);
+        for (int i = 0; i < HOS_SW_N && can_bind(); i++)
+            fprintf(f, "pad_%s=%d\nkey_%s=%d,%d\n", bind_names[i], host->binding(HOS_BIND_PAD, i, 0), bind_names[i],
+                    host->binding(HOS_BIND_KEY, i, 0), host->binding(HOS_BIND_KEY, i, 1));
         fclose(f);
     }
     if (FILE* f = fopen(ini_path().c_str(), "w")) {
@@ -178,6 +154,92 @@ void save() {
                     host->binding(HOS_BIND_KEY, i, 0), host->binding(HOS_BIND_KEY, i, 1));
         fclose(f);
     }
+}
+
+// ---- (hookshot) the Controls page: what presses each of the Switch's buttons, a gamepad input and up to two keys ----
+struct Control {
+    int button;   // HOS_SW_*
+    const char* name;
+};
+const Control controls[] = {{HOS_SW_A, "A"}, {HOS_SW_B, "B"}, {HOS_SW_X, "X"}, {HOS_SW_Y, "Y"}, {HOS_SW_L, "L"},
+                            {HOS_SW_R, "R"}, {HOS_SW_ZL, "ZL"}, {HOS_SW_ZR, "ZR"}, {HOS_SW_PLUS, "Plus"},
+                            {HOS_SW_MINUS, "Minus"}, {HOS_SW_LS, "Left stick press"}, {HOS_SW_RS, "Right stick press"},
+                            {HOS_SW_UP, "D-pad up"}, {HOS_SW_DOWN, "D-pad down"}, {HOS_SW_LEFT, "D-pad left"},
+                            {HOS_SW_RIGHT, "D-pad right"}};
+constexpr int kControls = sizeof controls / sizeof controls[0];   // (then "Reset to defaults")
+const char* pad_name(int p) {
+    static const char* t[HOS_PAD_N] = {"Bottom button", "Right button", "Left button", "Top button", "Select / Back",
+                                       "Home", "Start", "Left stick press", "Right stick press", "L1 / LB", "R1 / RB",
+                                       "D-pad up", "D-pad down", "D-pad left", "D-pad right", "L2 / LT", "R2 / RT"};
+    return p >= 0 && p < HOS_PAD_N ? t[p] : "None";
+}
+const char* key_name(int vk) {
+    static char b[16];
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) return b[0] = (char)vk, b[1] = 0, b;
+    if (vk >= VK_F1 && vk <= VK_F12) return snprintf(b, sizeof b, "F%d", vk - VK_F1 + 1), b;
+    if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD0 + 9) return snprintf(b, sizeof b, "Num %d", vk - VK_NUMPAD0), b;
+    switch (vk) {
+    case VK_SPACE: return "Space";
+    case VK_SHIFT: return "Shift";
+    case VK_CONTROL: return "Ctrl";
+    case VK_MENU: return "Alt";
+    case VK_TAB: return "Tab";
+    case VK_RETURN: return "Enter";
+    case VK_BACK: return "Backspace";
+    case VK_CAPITAL: return "Caps Lock";
+    case VK_UP: return "Up";
+    case VK_DOWN: return "Down";
+    case VK_LEFT: return "Left";
+    case VK_RIGHT: return "Right";
+    case VK_HOME: return "Home";
+    case VK_END: return "End";
+    case VK_PRIOR: return "Page Up";
+    case VK_NEXT: return "Page Down";
+    case VK_ADD: return "Num +";
+    case VK_SUBTRACT: return "Num -";
+    case VK_MULTIPLY: return "Num *";
+    case VK_DIVIDE: return "Num /";
+    case VK_DECIMAL: return "Num .";
+    case VK_OEM_1: return ";";
+    case VK_OEM_PLUS: return "=";
+    case VK_OEM_COMMA: return ",";
+    case VK_OEM_MINUS: return "-";
+    case VK_OEM_PERIOD: return ".";
+    case VK_OEM_2: return "/";
+    case VK_OEM_3: return "`";
+    case VK_OEM_4: return "[";
+    case VK_OEM_5: return "\\";
+    case VK_OEM_6: return "]";
+    case VK_OEM_7: return "'";
+    }
+    return snprintf(b, sizeof b, "Key %d", vk), b;
+}
+// the keys a binding can take (Esc cancels, Insert and F1 are the menu's, Delete clears)
+const std::vector<int>& bindable_keys() {
+    static std::vector<int> k;
+    if (k.empty()) {
+        for (int c = 'A'; c <= 'Z'; c++) k.push_back(c);
+        for (int c = '0'; c <= '9'; c++) k.push_back(c);
+        for (int c = VK_F2; c <= VK_F12; c++) k.push_back(c);
+        for (int c = VK_NUMPAD0; c <= VK_NUMPAD0 + 9; c++) k.push_back(c);
+        for (int c : {VK_SPACE, VK_SHIFT, VK_CONTROL, VK_MENU, VK_TAB, VK_RETURN, VK_BACK, VK_CAPITAL, VK_UP, VK_DOWN,
+                      VK_LEFT, VK_RIGHT, VK_HOME, VK_END, VK_PRIOR, VK_NEXT, VK_ADD, VK_SUBTRACT, VK_MULTIPLY,
+                      VK_DIVIDE, VK_DECIMAL, VK_OEM_1, VK_OEM_PLUS, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD,
+                      VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7})
+            k.push_back(c);
+    }
+    return k;
+}
+int page = 0;          // 0 the options, 1 the controls
+int csel = 0, ccol = 0;   // the controls' row (kControls: reset) and column (0 the gamepad, 1 the keyboard)
+int listening = 0;     // waiting for the new input: 1 a gamepad's, 2 a key
+bool listen_armed = false;   // (once what started it was let go)
+int64_t listen_end = 0;
+std::string keys_text(int button) {
+    const int a = host->binding(HOS_BIND_KEY, button, 0), b = host->binding(HOS_BIND_KEY, button, 1);
+    std::string t = a ? key_name(a) : "";
+    if (b) t += std::string(a ? ", " : "") + key_name(b);
+    return t.empty() ? "None" : t;
 }
 
 // ---- (hookshot) the Controls page: what presses each of the Switch's buttons, a gamepad input and up to two keys ----
@@ -454,7 +516,7 @@ void paint_menu(HDC dc, uint32_t w, uint32_t h, int s) {
     SelectObject(dc, body);
     SetTextColor(dc, RGB(140, 150, 144));
     const char* hint = "Arrows change   Insert, F1 or Home closes";
-    TextOutA(dc, 16 * s, help_top + 4 * s + help_px + 10 * s, hint, (int)strlen(hint));
+    TextOutA(dc, 16 * s, top + kRows * rh + 6 * s, hint, (int)strlen(hint));
     SelectObject(dc, old);
     DeleteObject(title);
     DeleteObject(body);
@@ -508,14 +570,8 @@ int measure_help(int s) {
     return most;
 }
 void redraw_menu(int s) {
-    if (page == 1) {
-        gdi_draw(menu_bmp, 600u * s, (uint32_t)((64 + (kControls + 1) * 24 + 52) * s), paint_menu, s);
-        return;
-    }
-    static int measured_at = 0;
-    if (measured_at != s) help_px = measure_help(s), measured_at = s;
-    // (title and rows, the rule and the help text, the hint line)
-    gdi_draw(menu_bmp, (uint32_t)(kMenuWidth * s), (uint32_t)((44 + kRows * 28 + 12 + 10 + 30) * s + help_px), paint_menu, s);
+    if (page == 1) gdi_draw(menu_bmp, 600u * s, (uint32_t)((64 + (kControls + 1) * 24 + 52) * s), paint_menu, s);
+    else gdi_draw(menu_bmp, 360u * s, (uint32_t)((44 + kRows * 28 + 34) * s), paint_menu, s);
 }
 
 std::atomic<int64_t> game_frames{0}, shown_frames{0};
@@ -665,7 +721,7 @@ void menu_tick() {
     // (hookshot) the gamepads, by position: Home, or Select and Start together, as Insert; the D-pad as the arrows,
     // the bottom face button as Enter, the right one as Esc (not while a binding waits for its button)
     static uint32_t pad_held = 0;
-    const uint32_t raw = mine && host && host->pad_raw ? host->pad_raw() : 0, pad_press = raw & ~pad_held;
+    const uint32_t raw = mine && can_bind() ? host->pad_raw() : 0, pad_press = raw & ~pad_held;
     const uint32_t chord = 1u << HOS_PAD_BACK | 1u << HOS_PAD_START;
     const bool chord_now = (raw & chord) == chord && (pad_held & chord) != chord;
     pad_held = raw;
@@ -679,17 +735,69 @@ void menu_tick() {
     bool changed = scale != cur_scale || menu_refresh;
     menu_refresh = false;
     cur_scale = scale;
-    if (press[0] || press[6]) open_now = !open_now.load(), changed = true;
+    if (press[0] || press[6]) {
+        open_now = !open_now.load(), changed = true;
+        page = 0, listening = 0;
+    }
     {   // (hookshot) RX_VK_MENU_OPEN=1 (diagnosis): the menu opened at the first frame, as Insert would, with no keyboard
         static bool forced = false;
-        if (!forced && getenv("RX_VK_MENU_OPEN")) forced = true, open_now = true, changed = true;
+        if (!forced && getenv("RX_VK_MENU_OPEN")) {   // (=controls: on the Controls page)
+            forced = true, open_now = true, changed = true;
+            page = !strcmp(getenv("RX_VK_MENU_OPEN"), "controls") && can_bind();
+        }
     }
-    if (open_now.load()) {
+    if (open_now.load() && page == 1) {   // (hookshot) the Controls page
+        if (!can_bind()) page = 0;
+        else if (listening) {
+            if (press[5] || prof_now() > listen_end) listening = 0, changed = true;   // (Esc, or nothing for a while)
+            else if (listening == 1) {
+                if (!listen_armed) listen_armed = (raw & ~(1u << HOS_PAD_GUIDE)) == 0;
+                else if (const uint32_t p = pad_press & ~(1u << HOS_PAD_GUIDE)) {
+                    int bit = 0;
+                    while (!(p >> bit & 1)) bit++;
+                    host->bind(HOS_BIND_PAD, controls[csel].button, 0, bit);
+                    listening = 0, changed = true;
+                    save();
+                }
+            } else {
+                int down = 0;
+                for (int k : bindable_keys())
+                    if (mine && (GetAsyncKeyState(k) & 0x8000)) {
+                        down = k;
+                        break;
+                    }
+                if (!listen_armed) listen_armed = !down;
+                else if (down) {
+                    host->bind(HOS_BIND_KEY, controls[csel].button, 0, down);
+                    host->bind(HOS_BIND_KEY, controls[csel].button, 1, 0);
+                    listening = 0, changed = true;
+                    save();
+                }
+            }
+        } else {
+            if (press[5]) page = 0, changed = true;
+            if (press[1]) csel = (csel + kControls) % (kControls + 1), changed = true;
+            if (press[2]) csel = (csel + 1) % (kControls + 1), changed = true;
+            if ((press[3] || press[4]) && csel < kControls) ccol ^= 1, changed = true;
+            if (press[7]) {
+                if (csel == kControls) host->bind(HOS_BIND_PAD, -1, 0, 0), save();
+                else listening = ccol ? 2 : 1, listen_armed = false, listen_end = prof_now() + 6000000000LL;
+                changed = true;
+            }
+            if ((press[8] || press[9]) && csel < kControls) {
+                if (ccol == 0) host->bind(HOS_BIND_PAD, controls[csel].button, 0, -1);
+                else for (int k = 0; k < 2; k++) host->bind(HOS_BIND_KEY, controls[csel].button, k, 0);
+                changed = true;
+                save();
+            }
+        }
+        if (changed) redraw_menu(scale);
+    } else if (open_now.load()) {
         if (press[5]) open_now = false;
         if (press[7] && !rows[selected].value && can_bind()) page = 1, csel = 0, ccol = 0, changed = true;
         if (press[1]) selected = (selected + kRows - 1) % kRows, changed = true;
         if (press[2]) selected = (selected + 1) % kRows, changed = true;
-        if ((press[3] || press[4] || press[7]) && rows[selected].value) {   // (Enter, or the bottom face button, as Right)
+        if ((press[3] || press[4] || press[7]) && rows[selected].value && page == 0) {   // (Enter as Right)
             Row& r = rows[selected];
             if (press[7]) press[4] = true;
             int v = *r.value + (press[4] ? r.step : -r.step);

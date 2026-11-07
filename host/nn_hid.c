@@ -326,10 +326,10 @@ static void stick_max(int32_t stick[4], const int32_t v[4]) {
         if ((v[i] < 0 ? -v[i] : v[i]) > (stick[i] < 0 ? -stick[i] : stick[i])) stick[i] = v[i];
 }
 
-/* ---- (hookshot) the controls: the gamepad input (by position) and the keys that press each Switch button, from
-   hookshot_options.ini beside the executable when it has them: pad_<button>=<HOS_PAD_* position, -1 none> and
-   key_<button>=<key code>,<key code> (Windows key codes, 0 none), <button> one of bind_names. Read once, at the
-   first use; what the file leaves out keeps its default ---- */
+/* ---- (hookshot) the controls: the gamepad input (by position) and the keys that press each Switch button. The Insert
+   menu's Controls page changes them (MkwVkHost.bind) and saves them with its options in hookshot_options.ini beside
+   the executable, as pad_<button>=<HOS_PAD_* position, -1 none> and key_<button>=<key code>,<key code>; read from
+   there once, at the first use ---- */
 static const char *const bind_names[HOS_SW_N] = {"a", "b", "x", "y", "ls", "rs", "l", "r", "zl", "zr", "plus",
                                                  "minus", "left", "up", "right", "down"};
 static const signed char pad_default[HOS_SW_N] = {
@@ -340,7 +340,7 @@ static const signed char pad_default[HOS_SW_N] = {
 static const unsigned char key_default[HOS_SW_N][2] = {
     {'E'}, {VK_SHIFT}, {VK_SPACE}, {0}, {VK_CONTROL}, {'C'}, {'Q'}, {'R'}, {'Z'}, {'X', 'F'}, {VK_TAB, VK_RETURN},
     {'M'}, {'1'}, {'2'}, {'3'}, {'4'}};
-static volatile LONG pad_bind[HOS_SW_N], key_bind[HOS_SW_N][2];   /* (the menu changes them as the game reads them) */
+static volatile LONG pad_bind[HOS_SW_N], key_bind[HOS_SW_N][2];
 
 static void binds_default(void) {
     for (int i = 0; i < HOS_SW_N; i++) {
@@ -348,7 +348,6 @@ static void binds_default(void) {
         for (int k = 0; k < 2; k++) InterlockedExchange(&key_bind[i][k], key_default[i][k]);
     }
 }
-
 static void binds_load(void) {
     static volatile LONG state;   /* 0 not read, 1 being read, 2 read */
     if (state == 2) return;
@@ -359,13 +358,12 @@ static void binds_load(void) {
     binds_default();
     char path[MAX_PATH];
     const DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
-    char *slash = len ? (strrchr(path, 92) ? strrchr(path, 92) : strrchr(path, 47)) : NULL;   /* (linux: '/') */
+    char *slash = len ? strrchr(path, HOS_SEP) : NULL;
     FILE *f = NULL;
     if (slash) {
         snprintf(slash + 1, (size_t)(path + MAX_PATH - slash - 1), "hookshot_options.ini");
         f = fopen(path, "r");
     }
-    int changed = 0;
     if (f) {
         char line[80];
         while (fgets(line, sizeof line, f)) {
@@ -375,21 +373,19 @@ static void binds_load(void) {
             const int pad = !strncmp(line, "pad_", 4), keys = !strncmp(line, "key_", 4);
             for (int i = 0; (pad || keys) && i < HOS_SW_N; i++) {
                 if (strcmp(line + 4, bind_names[i])) continue;
-                changed++;
                 if (pad) {
                     const int v = atoi(eq + 1);
-                    pad_bind[i] = v >= 0 && v < HOS_PAD_N ? v : -1;
+                    InterlockedExchange(&pad_bind[i], v >= 0 && v < HOS_PAD_N ? v : -1);
                 } else {
-                    const char *comma = strchr(eq + 1, ',');
+                    char *comma = strchr(eq + 1, ',');
                     const int a = atoi(eq + 1), b = comma ? atoi(comma + 1) : 0;
-                    key_bind[i][0] = a > 0 && a < 256 ? a : 0;
-                    key_bind[i][1] = b > 0 && b < 256 ? b : 0;
+                    InterlockedExchange(&key_bind[i][0], a > 0 && a < 256 ? a : 0);
+                    InterlockedExchange(&key_bind[i][1], b > 0 && b < 256 ? b : 0);
                 }
             }
         }
         fclose(f);
     }
-    if (changed) hos_log("hid: %d controls from hookshot_options.ini", changed);
     InterlockedExchange(&state, 2);
 }
 int hos_binding(int set, int button, int slot) {
@@ -420,7 +416,6 @@ void hos_bind(int set, int button, int slot, int code) {
         InterlockedExchange(&key_bind[button][slot], code);
     }
 }
-
 static volatile LONG pad_raw_now;   /* the gamepads' inputs at the last read, 1 << HOS_PAD_* */
 uint32_t hos_pad_raw(void) { return (uint32_t)pad_raw_now; }
 
@@ -436,7 +431,7 @@ static void pads_read(uint64_t *buttons, int32_t stick[4]) {
         return;
     }
     next_read = now + 2000000;
-    uint64_t raw = 0;   /* (by position: 1 << HOS_PAD_*) */
+    uint64_t raw = 0;   /* (by position: HOS_PAD_*) */
     int32_t s[4] = {0};
     {   /* every controller SDL knows (DualSense, DualShock 4, Switch Pro, ...: hos/pad_sdl.c) */
         int hos_sdl_pads(uint64_t *buttons, int32_t stick[4]);
@@ -481,7 +476,7 @@ static void pads_read(uint64_t *buttons, int32_t stick[4]) {
             if (w & map[i].x) raw |= 1ULL << map[i].b;
         if (xs.Gamepad.bLeftTrigger > 64) raw |= 1ULL << HOS_PAD_LTRIGGER;
         if (xs.Gamepad.bRightTrigger > 64) raw |= 1ULL << HOS_PAD_RTRIGGER;
-        const int16_t thumb[4] = {xs.Gamepad.sThumbLX, xs.Gamepad.sThumbLY, xs.Gamepad.sThumbRX, xs.Gamepad.sThumbRY};
+        const int16_t raw[4] = {xs.Gamepad.sThumbLX, xs.Gamepad.sThumbLY, xs.Gamepad.sThumbRX, xs.Gamepad.sThumbRY};
         int32_t v[4];
         for (int i = 0; i < 4; i++) {
             const int a = thumb[i] < -32767 ? -32767 : thumb[i];
@@ -524,13 +519,6 @@ static void read_input(uint64_t *buttons, int32_t stick[4]) {
     if (exclusive < 0) exclusive = getenv("HOS_INPUT_EXCLUSIVE") != NULL;
     if (exclusive && npresses > 0 && (hos_now_ns() - script_t0) / 1000000 < script_end_ms + 5000)
         return;
-    if (!game_in_front()) {   /* (the pads alone, when the player asked for them behind other windows) */
-        static const char *env;
-        static int looked;
-        if (!looked) looked = 1, env = getenv("HOS_INPUT_BACKGROUND");
-        if (pads_in_background(env, rx_option(4, 0))) pads_read(buttons, stick);
-        return;
-    }
     {   /* (hookshot) while the Insert menu is open the pads are its own, as the keyboard is (key()), and after it
            closed until they are let go (the press that closed it never reaches the game) */
         uint64_t pb = 0;
@@ -539,15 +527,14 @@ static void read_input(uint64_t *buttons, int32_t stick[4]) {
         static int after_menu;
         if (rx_option(1, 0)) after_menu = 1;
         else if (after_menu && !pad_raw_now) after_menu = 0;
-        if (!after_menu) {
-            *buttons |= pb;
-            stick_max(stick, ps);
-        }
+        if (after_menu) return;
+        *buttons |= pb;
+        stick_max(stick, ps);
     }
-    binds_load();   /* (the keys: key_default's, or hookshot_options.ini's) */
+    /* (the keys: binds_load's, the Controls page's) */
     for (int i = 0; i < HOS_SW_N; i++)
         for (int k = 0; k < 2; k++)
-            if (key_bind[i][k] && kmap_down(key_bind[i][k], key)) *buttons |= 1ULL << i;
+            if (key_bind[i][k] && key(key_bind[i][k])) *buttons |= 1ULL << i;
     int32_t mouse[4] = {0};
     /* left button Y (attack), right button ZL (shield, lock on), while the mouse is captured; a button held when
        the capture began counts only after it was let go (the click that captures never reaches the game) */

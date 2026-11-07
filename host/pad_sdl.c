@@ -4,8 +4,8 @@
    A thread of its own (on Linux the window's, which runs SDL there too) opens every controller SDL knows (and ones
    plugged in later), polls them every 4 ms and keeps
    the merged state; nn_hid.c ORs it into the input with XInput, keyboard and mouse. Without SDL3.dll nothing
-   changes. HOS_NO_SDL=1 leaves SDL out. Buttons map by position, as for XInput (and SDL3's own names): the bottom face
-   button is the Switch's B (cross on a DualSense, A on an Xbox pad), the right one A, left Y, top X. */
+   changes. HOS_NO_SDL=1 leaves SDL out. The inputs go by position (HOS_PAD_*, SDL3's own order: the bottom face button
+   first, cross on a DualSense, A on an Xbox pad); nn_hid.c's controls make them the Switch's buttons. */
 #include "hos.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -51,8 +51,7 @@ static struct {
 } sdl;
 
 enum { SDL_INIT_GAMEPAD = 0x2000 };
-enum { BTN_A, BTN_B, BTN_X, BTN_Y, BTN_BACK, BTN_GUIDE, BTN_START, BTN_LSTICK, BTN_RSTICK, BTN_LSHOULDER, BTN_RSHOULDER,
-       BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT };   /* (SDL_GAMEPAD_BUTTON_SOUTH, _EAST, _WEST, _NORTH, ...) */
+enum { BTN_N = 15 };   /* (SDL_GAMEPAD_BUTTON_SOUTH ... _DPAD_RIGHT: HOS_PAD_SOUTH ... HOS_PAD_RIGHT) */
 enum { AX_LX, AX_LY, AX_RX, AX_RY, AX_LT, AX_RT };
 
 #define MAX_PADS 8
@@ -153,7 +152,7 @@ static void pads_poll(void) {
             void *gc = pads[i].gc;
             if (!gc) continue;
             count++;
-            for (int k = BTN_A; k <= BTN_RIGHT; k++)
+            for (int k = 0; k < BTN_N; k++)
                 if (sdl.GetButton(gc, k)) b |= 1ULL << k;
             if (sdl.GetAxis(gc, AX_LT) > 8000) b |= 1ULL << HOS_PAD_LTRIGGER;
             if (sdl.GetAxis(gc, AX_RT) > 8000) b |= 1ULL << HOS_PAD_RTRIGGER;
@@ -198,8 +197,8 @@ void hos_sdl_pads_pump(void) {
 }
 #endif
 
-/* The controllers' merged state (nn_hid.c): ORs their inputs in (1 << HOS_PAD_*), keeps the larger stick
-   deflections; returns how many controllers SDL has open. Starts the SDL thread on the first call. */
+/* The controllers' merged state (nn_hid.c): ORs their inputs in (1 << HOS_PAD_*), keeps the larger stick deflections; returns how many
+   controllers SDL has open. Starts the SDL thread on the first call. */
 int hos_sdl_pads(uint64_t *buttons, int32_t stick[4]) {
     static volatile LONG started;
     if (!started && !InterlockedExchange(&started, 1)) {
