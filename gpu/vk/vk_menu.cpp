@@ -679,57 +679,12 @@ void menu_tick() {
     bool changed = scale != cur_scale || menu_refresh;
     menu_refresh = false;
     cur_scale = scale;
-    if (press[0] || press[6]) {
-        open_now = !open_now.load(), changed = true;
-        page = 0, listening = 0;
+    if (press[0] || press[6]) open_now = !open_now.load(), changed = true;
+    {   // (hookshot) RX_VK_MENU_OPEN=1 (diagnosis): the menu opened at the first frame, as Insert would, with no keyboard
+        static bool forced = false;
+        if (!forced && getenv("RX_VK_MENU_OPEN")) forced = true, open_now = true, changed = true;
     }
-    if (open_now.load() && page == 1) {   // (hookshot) the Controls page
-        if (!can_bind()) page = 0;
-        else if (listening) {
-            if (press[5] || prof_now() > listen_end) listening = 0, changed = true;   // (Esc, or nothing for a while)
-            else if (listening == 1) {
-                if (!listen_armed) listen_armed = (raw & ~(1u << HOS_PAD_GUIDE)) == 0;
-                else if (const uint32_t p = pad_press & ~(1u << HOS_PAD_GUIDE)) {
-                    int bit = 0;
-                    while (!(p >> bit & 1)) bit++;
-                    host->bind(HOS_BIND_PAD, controls[csel].button, 0, bit);
-                    listening = 0, changed = true;
-                    save();
-                }
-            } else {
-                int down = 0;
-                for (int k : bindable_keys())
-                    if (mine && (GetAsyncKeyState(k) & 0x8000)) {
-                        down = k;
-                        break;
-                    }
-                if (!listen_armed) listen_armed = !down;
-                else if (down) {
-                    host->bind(HOS_BIND_KEY, controls[csel].button, 0, down);
-                    host->bind(HOS_BIND_KEY, controls[csel].button, 1, 0);
-                    listening = 0, changed = true;
-                    save();
-                }
-            }
-        } else {
-            if (press[5]) page = 0, changed = true;
-            if (press[1]) csel = (csel + kControls) % (kControls + 1), changed = true;
-            if (press[2]) csel = (csel + 1) % (kControls + 1), changed = true;
-            if ((press[3] || press[4]) && csel < kControls) ccol ^= 1, changed = true;
-            if (press[7]) {
-                if (csel == kControls) host->bind(HOS_BIND_PAD, -1, 0, 0), save();
-                else listening = ccol ? 2 : 1, listen_armed = false, listen_end = prof_now() + 6000000000LL;
-                changed = true;
-            }
-            if ((press[8] || press[9]) && csel < kControls) {
-                if (ccol == 0) host->bind(HOS_BIND_PAD, controls[csel].button, 0, -1);
-                else for (int k = 0; k < 2; k++) host->bind(HOS_BIND_KEY, controls[csel].button, k, 0);
-                changed = true;
-                save();
-            }
-        }
-        if (changed) redraw_menu(scale);
-    } else if (open_now.load()) {
+    if (open_now.load()) {
         if (press[5]) open_now = false;
         if (press[7] && !rows[selected].value && can_bind()) page = 1, csel = 0, ccol = 0, changed = true;
         if (press[1]) selected = (selected + kRows - 1) % kRows, changed = true;
