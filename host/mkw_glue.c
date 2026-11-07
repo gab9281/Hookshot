@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include <windows.h>   /* (Linux: host/linux/windows.h) */
 #ifndef _WIN32
 #include <dlfcn.h>
 #include <execinfo.h>
@@ -16,6 +16,10 @@
    APIs given guest buffers (ReadFile into a game buffer) fail on reserved pages without raising an exception. A
    guest or host access to a page nothing committed is committed on first touch, 64 KB at a time, by the handler. */
 void hos_commit(uint64_t addr, uint64_t size) {
+#ifndef _WIN32   /* (hookshot) Linux: the whole window is mapped read-write, its pages given on touch (hos_main.c) */
+    (void)addr, (void)size;
+    return;
+#endif
     if (!size) return;
     const uint64_t lo = addr & ~0xFFFFULL, hi = (addr + size + 0xFFFF) & ~0xFFFFULL;
     if (!VirtualAlloc(GP(lo), (SIZE_T)(hi - lo), MEM_COMMIT, PAGE_READWRITE))
@@ -84,8 +88,7 @@ static LONG WINAPI report_crash(EXCEPTION_POINTERS *info) {
         hos_log("%s", hb);
     }
 #else
-    {   /* (hookshot) Linux: the host stack as module+offset, from glibc (the frames above the signal's included): the
-           x64 unwind data is Windows' */
+    {   /* (hookshot) Linux: the host stack as module+offset, from glibc (frames above the signal's included) */
         void *pcs[24];
         const int got = backtrace(pcs, 24);
         char hb[1024];
@@ -607,7 +610,7 @@ void hos_prof_start(void) {
     const char *watch = getenv("HOS_WATCH");
     if (watch && *watch) CreateThread(NULL, 0, watch_thread, (void *)watch, 0, NULL);
 }
-#endif   /* (linux) host/posix/prof.c */
+#endif   /* (hookshot) Linux: host/linux/prof.c */
 void hos_mem_checkpoint(const char *what) { (void)what; }        /* (hos_prof.c: HOS_MEM_TIMELINE) */
 int hos_game_cores(void) { return 0; }                           /* (totk_cores.c) */
 int hos_blank_cached_icon(const char *guest, const char *host) { (void)guest, (void)host; return 0; }   /* (TOTK) */
@@ -706,6 +709,19 @@ void hos_host_thread_register_self(const char *name) {   /* (hos_prof.c: names f
     if (MultiByteToWideChar(CP_UTF8, 0, name, -1, w, 64)) SetThreadDescription(GetCurrentThread(), w);
 }
 void hos_process_memory(uint64_t *private_bytes, uint64_t *working_set) {
+#ifndef _WIN32   /* (hookshot) Linux: /proc/self/status's anonymous and resident memory */
+    *private_bytes = *working_set = 0;
+    FILE *f = fopen("/proc/self/status", "r");
+    if (!f) return;
+    char line[128];
+    unsigned long long kb;
+    while (fgets(line, sizeof line, f)) {
+        if (sscanf(line, "RssAnon: %llu", &kb) == 1) *private_bytes = kb << 10;
+        else if (sscanf(line, "VmRSS: %llu", &kb) == 1) *working_set = kb << 10;
+    }
+    fclose(f);
+    return;
+#endif
     typedef struct {
         DWORD cb, PageFaultCount;
         SIZE_T PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,

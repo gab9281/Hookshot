@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "vk_menu.h"
-#ifndef HOOKSHOT_VERSION   // (nx2/build.py gives it to this file: nx2/version.py)
-#define HOOKSHOT_VERSION "unknown"
+#ifndef _WIN32
+#include "vk_gdi_linux.h"   // (hookshot) Linux: the GDI it draws with
 #endif
 
 namespace mkwvk {

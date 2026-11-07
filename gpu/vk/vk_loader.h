@@ -5,8 +5,8 @@
 #ifdef _WIN32
 #define VK_USE_PLATFORM_WIN32_KHR
 #define VKX_WIN32_SURFACE(X) X(vkCreateWin32SurfaceKHR)
-#else
-#define VKX_WIN32_SURFACE(X)   /* (linux: SDL makes the surface, host/posix/display_sdl.c) */
+#else   /* (hookshot) Linux: the window's toolkit makes the surface (vk_api.h HosLinuxWindow) */
+#define VKX_WIN32_SURFACE(X)
 #endif
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

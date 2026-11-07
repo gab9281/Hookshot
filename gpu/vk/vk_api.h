@@ -118,26 +118,24 @@ typedef struct MkwVkRenderer {
     void (*nvn_submit_q)(const uint64_t *handles, int n, uint64_t queue);
 } MkwVkRenderer;
 
+/* (hookshot) Linux: what start's window is (host/linux/display_sdl.c): the toolkit's window and what the back end
+   asks of it, a surface on its instance (made with every window-system surface extension the loader has) and the
+   size to draw at */
+typedef struct HosLinuxWindow {
+    void *native;
+    int (*vk_surface)(void *native, void *instance, uint64_t *surface);
+    void (*size)(void *native, int *width, int *height);
+} HosLinuxWindow;
+
 /* the DLL's one export: null when Vulkan is not usable (the executable then falls back to WebGPU) */
 typedef const MkwVkRenderer *(*mkwvk_init_fn)(const MkwVkHost *host);
-#ifdef MKWVK_BUILDING
 #ifdef _WIN32
-__declspec(dllexport) const MkwVkRenderer *mkwvk_init(const MkwVkHost *host);
+#define MKWVK_EXPORT __declspec(dllexport)
 #else
-__attribute__((visibility("default"))) const MkwVkRenderer *mkwvk_init(const MkwVkHost *host);
+#define MKWVK_EXPORT __attribute__((visibility("default")))
 #endif
-#endif
-
-#ifndef _WIN32
-/* (linux) what start() is given in place of a window handle (host/posix/display_sdl.c): the window makes the
-   surface (SDL_Vulkan_CreateSurface: X11 or Wayland) and says its size in pixels */
-#define MKWVK_WINDOW_VERSION 1
-typedef struct MkwVkWindow {
-    uint32_t version;   /* MKWVK_WINDOW_VERSION */
-    int (*create_surface)(void *window, void *instance, void *surface_out);   /* (VkInstance, VkSurfaceKHR *): 1 if made */
-    void (*drawable_size)(void *window, int *width, int *height);
-    void *window;
-} MkwVkWindow;
+#ifdef MKWVK_BUILDING
+MKWVK_EXPORT const MkwVkRenderer *mkwvk_init(const MkwVkHost *host);
 #endif
 
 #ifdef __cplusplus

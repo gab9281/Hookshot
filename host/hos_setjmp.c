@@ -28,7 +28,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <windows.h>
+#include <windows.h>   /* (Linux: host/linux/windows.h) */
 #include <string.h>
 
 #define DEPTH 256
@@ -101,16 +101,17 @@ __attribute__((naked, noreturn)) static void recomp_sj_longjmp(void **buf, int v
 }
 
 #else
-/* (linux) the System V ABI's: the buffer as above, its callee-saved registers only (rbx rbp r12-r15: rdi, rsi and the
-   xmm registers are the caller's to keep there), buf in rdi and the value in esi */
+/* (hookshot) Linux, the System V ABI: rbx rbp r12 r13 r14 r15 at 0-40, rsp (after the return) at 64, the return
+   address at 72, mxcsr at 240 and the x87 control word at 244 (no callee-saved xmm registers; the argument in rdi,
+   the value in esi) */
 __attribute__((naked, returns_twice)) int recomp_sj_setjmp(void **buf) {
     __asm__ volatile(
         "movq %rbx, 0(%rdi)\n\t"
         "movq %rbp, 8(%rdi)\n\t"
-        "movq %r12, 32(%rdi)\n\t"
-        "movq %r13, 40(%rdi)\n\t"
-        "movq %r14, 48(%rdi)\n\t"
-        "movq %r15, 56(%rdi)\n\t"
+        "movq %r12, 16(%rdi)\n\t"
+        "movq %r13, 24(%rdi)\n\t"
+        "movq %r14, 32(%rdi)\n\t"
+        "movq %r15, 40(%rdi)\n\t"
         "leaq 8(%rsp), %rdx\n\t"
         "movq %rdx, 64(%rdi)\n\t"
         "movq (%rsp), %rdx\n\t"
@@ -125,10 +126,10 @@ __attribute__((naked, noreturn)) static void recomp_sj_longjmp(void **buf, int v
     __asm__ volatile(
         "movq 0(%rdi), %rbx\n\t"
         "movq 8(%rdi), %rbp\n\t"
-        "movq 32(%rdi), %r12\n\t"
-        "movq 40(%rdi), %r13\n\t"
-        "movq 48(%rdi), %r14\n\t"
-        "movq 56(%rdi), %r15\n\t"
+        "movq 16(%rdi), %r12\n\t"
+        "movq 24(%rdi), %r13\n\t"
+        "movq 32(%rdi), %r14\n\t"
+        "movq 40(%rdi), %r15\n\t"
         "ldmxcsr 240(%rdi)\n\t"
         "fldcw 244(%rdi)\n\t"
         "movl %esi, %eax\n\t"

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <chrono>
 #include <map>
 #include <set>
@@ -944,19 +945,15 @@ uint64_t memory_writeback_value(uint64_t guest, uint64_t size, bool* ever) {
 /// -fasync-exceptions clang catches a fault in a __try block only across a call, and a 4 KB memcpy inlined into the
 /// block (the per-page retry) faulted past the handler: the crash that kept the texture storage out of the capture.
 void* (*volatile guarded_memcpy)(void*, const void*, size_t) = std::memcpy;
-#ifdef _WIN32
+#ifndef _WIN32   // (hookshot) Linux: a fault is a signal (host/linux/win32.c)
+bool guarded_copy(void* dst, const void* src, size_t n) { return win32_guarded_copy(dst, src, n) != 0; }
+#else
 __declspec(noinline) bool guarded_copy(void* dst, const void* src, size_t n) {
     __try {
         guarded_memcpy(dst, src, n);
     } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
         return false;
     }
-    return true;
-}
-#else
-// (linux: the guest window is one mapping that stays readable, decommitted pages read as zero: nothing to fault on)
-bool guarded_copy(void* dst, const void* src, size_t n) {
-    guarded_memcpy(dst, src, n);
     return true;
 }
 #endif
@@ -1424,10 +1421,7 @@ uint64_t mirror_budget() {
         uint64_t vram = 0;
         for (uint32_t h = 0; h < dev.memory.memoryHeapCount; h++)
             if (dev.memory.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) vram = std::max(vram, (uint64_t)dev.memory.memoryHeaps[h].size);
-        // (cards of 6 GB or less only: on 8 GB ones, a 3070 or a 4060, the game's memory read over PCIe instead left the GPU at a few
-        // percent and the frame stuttering)
-        if (vram && vram <= (6ull << 30) + (512ull << 20)) return vram / 8;
-        return vram ? std::min<uint64_t>(vram / 4, 3072ull << 20) : (uint64_t)(3072ull << 20);
+        return vram ? std::min<uint64_t>(vram / 4, 3072ull << 20) : (uint64_t)3072 << 20;
     }();
     return b;
 }
