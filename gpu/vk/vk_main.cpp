@@ -388,8 +388,8 @@ bool create_swapchain(uint32_t width, uint32_t height) {
 namespace {
 
 HWND main_window = nullptr;
-// (hookshot) hookshot --prepare-shaders (a builder, after a build): the same work with no game, its progress as
-// "@@progress" lines on stdout. A skip there leaves hookshot_prepare_skipped beside the game: its own starts then
+// (hookshot) hookshot_rt --prepare-shaders (the launcher, after a build): the same work with no game, its progress as
+// "@@progress" lines on stdout. A skip there leaves hookshot_prepare_skipped beside the runtime: the game's own starts then
 // leave the work out too (what was not prepared is built when first drawn), until a --prepare-shaders run ends it
 bool prepare_only() { return getenv("HOOKSHOT_PREPARE_ONLY") != nullptr; }
 std::string skipped_path() {
