@@ -81,63 +81,19 @@ Add `--check` with your `.nup` or `--exefs` to only check the game's version. It
 
 A build takes about 40 minutes, and you can use your PC in the meantime.
 
-### On Linux
+**From Linux:**
 
-1. Download `Hookshot-<version>-x86_64.AppImage` from the Releases page (or the Linux AppImage workflow's artifact),
-   make it executable (`chmod +x`) and start it. It is Hookshot Builder with everything it needs inside: the compiler,
-   the libraries and the Vulkan renderer. Nothing else has to be installed.
-2. Choose your `.nup` (or your `romfs` and `exefs` folders), a language and a folder for the game, and build.
-3. When it finishes, press Play. The game is also added to your applications menu. The same AppImage starts that
-   game without opening the builder: `./Hookshot-<version>-x86_64.AppImage --play`, or `--play ~/Games/Hookshot`
-   for a different folder. The game itself is `hookshot` in the folder you chose: it runs without the AppImage.
+The same Windows game can be built on a Linux PC and played with Proton or Wine. Microsoft's C library and Windows SDK
+are downloaded once by [xwin](https://github.com/Jake-Shadle/xwin), which asks you to accept Microsoft's licence:
 
-From the command line: `./Hookshot-<version>-x86_64.AppImage --cli --nup ~/your-game.nup --out ~/Games/Hookshot`
-(the same options as `make_game.py`).
+```sh
+cargo install xwin --locked
+scripts/setup-winsysroot.sh
+python3 -I nx2/make_game.py --nup ~/your-game.nup --out ~/Games/Hookshot --language en-US
+```
 
-You need a 64-bit x86 PC with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora, Arch, SteamOS ...), a Vulkan 1.3
-driver with mesh shaders (Mesa or NVIDIA), and the same memory and disk space as on Windows. The build's own files go
-to `~/.cache/hookshot-builder`. Saves go in `$XDG_DATA_HOME/hookshot` (`~/.local/share/hookshot`). A `user` folder
-beside the game from an earlier build is moved there once. `HOOKSHOT_JOBS` sets how many files compile at once.
-Switches to test (`RX_VK_NOOPT=1` and the others) go in `hookshot_env.txt` beside the game, one `NAME=VALUE` a line,
-as on Windows.
-
-`RX_VK_MOVIE_UPSCALE=linear` replaces the movie's neural upscale with the existing linear path. The default `auto` behavior
-keeps the networks and falls back only when movie GPU time exceeds the existing 40 ms trigger. This switch does not change
-the gameplay upscaler and can make movie images look softer. It works on Windows and Linux; `RX_VK_NETWORK_KEEP=all` takes
-precedence and keeps the movie networks enabled.
-
-Building it yourself without the AppImage: `clang` and `lld` (LLVM 23 or newer reads the play profile; an older one
-builds without it), Python 3 with `lz4`, `numpy`, `capstone`, `unicorn` and `zstandard`, FFmpeg's development files
-(with dav1d, for the movies) and SDL2. Then `python -I nx2/make_game.py ...` as above, with `RX_CPM` pointing at a folder
-with Vulkan-Headers, SPIRV-Headers and VulkanMemoryAllocator in CPM's layout (`scripts/linux/deps.sh` makes one).
-`scripts/linux/deps.sh` and `scripts/linux/appimage.sh` make the AppImage.
-
-### Updating to a newer release
-
-A new release is not a patch to your game folder: the game is built again from your copy, with the new code. Your
-saves and settings are kept.
-
-1. Close the game.
-2. To be safe, copy your saves somewhere first: the `user` folder beside `hookshot.exe` on Windows, or
-   `~/.local/share/hookshot` on Linux.
-3. Get the new release:
-   - **Hookshot Builder:** download the new HookshotBuilder zip and extract it to a new folder (with its `tools`
-     folder). The old builder folder can then be deleted.
-   - **Linux:** download the new AppImage and make it executable. The old one can be deleted, the game is not removed with it.
-   - **Command line:** `git pull` in your clone, and take the `tools` folder's contents (see
-     [What you need](#what-you-need)) from the new HookshotBuilder zip, as they can change between releases.
-4. Build again with the same `.nup` (or `romfs` and `exefs` folders) and **the same game folder** as before. With the
-   same `.nup`, the game is not read again, but the translation and the compile still run, so it takes about as long
-   as the first build.
-5. Start the game as before.
-
-What a new build keeps and what it replaces in the game folder:
-
-| Kept | Replaced |
-|---|---|
-| Your saves (`user`, or `~/.local/share/hookshot` on Linux) | `hookshot.exe` (`hookshot` on Linux) and its files |
-| `hookshot_options.ini`, the in-game menu's choices | `image.bin` and the shader list |
-| `hookshot_env.txt` | `language.txt`, written again with the language you choose |
+This needs clang, lld (with `lld-link`) and the Python packages below. `--target windows` is the default on both systems.
+`--target linux` builds a native `hookshot`, but the system layer is not ported yet, so that build does not compile.
 
 ### What you need
 
@@ -152,12 +108,8 @@ What a new build keeps and what it replaces in the game folder:
 
 To build from the command line you also need:
 
-- Python 3 with `lz4`, `numpy`, `capstone`, `unicorn` and `zstandard`:
-  `pip install lz4 numpy capstone "unicorn>=2.1,<2.2" zstandard`
-  Use Python from python.org: the Microsoft Store's Python installs packages where `python -I` does not look.
-- [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (the `ucrt-x86_64` build), with `HOOKSHOT_MINGW` set to its folder. Without
-  it the build uses the clang from [emsdk](https://github.com/emscripten-core/emsdk) at `C:\emsdk` with Visual Studio's C++ tools
-  and the Windows SDK (`HOOKSHOT_MSVC=1` forces that route).
+- Python 3 with `lz4`, `numpy`, `capstone`, `zstandard` and `unicorn`.
+- The clang from [emsdk](https://github.com/emscripten-core/emsdk), at `C:\emsdk`.
 - Visual Studio 2022 with .NET 8, only if you want to change the builder itself.
 - The prebuilt tools that go in `third_party/`: `a64emit`, `lld-link`, `zbic` and SDL2.
 - What the HookshotBuilder zip carries in its `tools` folder and a clone does not. The builder sets the variables
@@ -259,8 +211,9 @@ game than anyone has yet.
 
 Bigger ways to help:
 
-- **Linux testing.** The Linux build (`host/posix`) has been tested on one PC so far: reports from other distributions
-  and graphics cards help.
+- **Linux support.** Hookshot can be built on Linux, but the game only runs as a Windows program today (Proton or Wine).
+  `--target linux` is the build path for a native one: the Vulkan renderer is a good start, but the system layer
+  (`host/`) still needs porting.
 - **Fixes in your own fork.** Fork the project, fix what you find and send the change back. Keep game files, keys and
   anything generated from your game out of it.
 
