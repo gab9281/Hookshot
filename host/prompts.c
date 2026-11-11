@@ -948,13 +948,12 @@ void hos_prompts_glyph(uint64_t slot) {
         last = face;   /* (another font: not looked at again while its glyphs follow each other) */
         return;
     }
-    const uint64_t at = base[0] + (base[1] == font.n ? 8 : 0);   /* (kept with its 8-byte header, or without) */
-    const uint8_t *q = (const uint8_t *)hos_guest_range(at, font.n - 8);
-    if (!q) return;
-    if (memcmp(q, font.head, sizeof font.head)) {
-        last = face;   /* (another font of that size) */
-        return;
+    uint64_t at = 0;   /* (the decrypted font at the stream's start, as the game keeps it; or behind an 8-byte header kept too) */
+    for (int h = 0; h < 2 && !at; h++) {
+        const uint8_t *q = (const uint8_t *)hos_guest_range(base[0] + 8 * h, font.n - 8);
+        if (q && !memcmp(q, font.head, sizeof font.head)) at = base[0] + 8 * h;
     }
+    if (!at) return;   /* (not as served yet, or another font of that size: looked at again) */
     font.at = at;
     hos_log("prompts: the font at %#llx: the icons in texts follow at once", (unsigned long long)font.at);
 }
